@@ -12,8 +12,8 @@ from telegram.ext import (
 # читаем из окружения
 TOKEN       = os.environ["TG_TOKEN"]
 RAILWAY_URL = os.environ["RAILWAY_URL"]  # например https://cosmeticbot-production.up.railway.app
-# Railway сам подставляет PORT, поэтому вручную добавлять не нужно
-PORT        = int(os.environ.get("PORT", 5000))
+# если PORT не задан вручную, возьмётся 5000
+PORT = int(os.environ.get("PORT", 5000))
 
 # включаем логирование
 logging.basicConfig(
