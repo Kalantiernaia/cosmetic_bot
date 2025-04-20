@@ -1,57 +1,54 @@
 import os
-
+import asyncio
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    ExtBot,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
-# Загружаем секреты из переменных окружения
-TOKEN = os.getenv("TG_TOKEN")
-RAILWAY_URL = os.getenv("RAILWAY_URL")
-PORT = int(os.environ.get("PORT", 5000))
+# --- 1. Берём токен и URL из переменных окружения Railway ---
+TOKEN      = os.environ["TG_TOKEN"]
+RAILWAY_URL = os.environ["RAILWAY_URL"]  # без слеша на конце
 
-if TOKEN is None or RAILWAY_URL is None:
-    raise RuntimeError("Не найдены TG_TOKEN или RAILWAY_URL в окружении")
-
-app = Flask(__name__)
+# --- 2. Создаём Flask-приложение и Telegram-бота ---
+app     = Flask(__name__)
 bot_app = ApplicationBuilder().token(TOKEN).build()
 
-
-# ——— Пример простых хэндлеров ——————————————————
-
+# --- 3. Команда /start ---
 async def start(update: Update, context):
-    await update.message.reply_text(
-        "Привет! Я бот по анализу косметики. Пришли фото состава, и я распознаю текст."
-    )
-
+    await update.message.reply_text("Привет! Пришлите мне фото состава косметики.")
 bot_app.add_handler(CommandHandler("start", start))
 
-
+# --- 4. Обработчик фото ---
 async def handle_photo(update: Update, context):
     photo = update.message.photo[-1]
-    file = await photo.get_file()
-    path = f"tmp_{photo.file_id}.jpg"
+    file  = await photo.get_file()
+    path  = f"tmp_{photo.file_id}.jpg"
     await file.download_to_drive(path)
-    # TODO: здесь OCR + отправка в OpenAI, ждите…
-    await update.message.reply_text("Готово, скоро отчёт отправлю.")
+    # TODO: OCR + анализ через OpenAI
+    await update.message.reply_text("Готово, скоро пришлю вам отчёт по составу.")
     os.remove(path)
-
 bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-
-# ——— Эндпоинт для вебхука —————————————————————
-
+# --- 5. Маршрут для Webhook ---
 @app.route(f"/hook/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     bot_app.update_queue.put(update)
     return "OK"
 
-
-# ——— Стартуем Flask + регистрируем вебхук ——————————
-
+# --- 6. Главная точка входа ---
 if __name__ == "__main__":
-    # Регистрируем вебхук на Railway-домен
-    webhook_url = f"https://{RAILWAY_URL}/hook/{TOKEN}"
-    bot_app.bot.set_webhook(webhook_url)
-    # Запускаем встроенный сервер Flask
-    app.run(host="0.0.0.0", port=PORT)
+    # Собираем URL для установки webhook
+    webhook_url = f"{RAILWAY_URL}/hook/{TOKEN}"
+
+    # Устанавливаем webhook асинхронно перед стартом Flask
+    asyncio.run(bot_app.bot.set_webhook(webhook_url))
+
+    # Запускаем Flask, порт берем из среды Railway
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
