@@ -9,57 +9,55 @@ from telegram.ext import (
     filters,
 )
 
-# Логируем, чтобы видеть ошибки при старте
+# забираем всё из окружения
+TOKEN       = os.environ["TG_TOKEN"]
+RAILWAY_URL = os.environ["RAILWAY_URL"]  # например https://cosmeticbot-production.up.railway.app
+PORT        = int(os.environ.get("PORT", 5000))
+
+# включаем логирование, чтобы видеть что происходит
 logging.basicConfig(
-    format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
-logger = logging.getLogger(__name__)
 
+# создаём приложение
+app = ApplicationBuilder().token(TOKEN).build()
 
+# обработчик /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Пришли мне фото косметического состава, и я его проанализирую."
+        "Привет! Я бот, который анализирует состав косметики. Пришли фото состава."
     )
 
-
+# обработчик фото
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
-    file = await photo.get_file()
-    path = f"/tmp/{photo.file_id}.jpg"
+    file  = await photo.get_file()
+    path  = f"tmp/{photo.file_id}.jpg"
     await file.download_to_drive(path)
-    # TODO: здесь сделаем OCR + OpenAI‑анализ
-    await update.message.reply_text("Готово, скоро отправлю отчёт по составу.")
-    # os.remove(path)
+    await update.message.reply_text("Фото получено, скоро пришлю отчёт…")
+    # тут можно подключить OCR + OpenAI
 
+# регистрируем их
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-def main():
-    # Прочитаем переменные окружения, которые настроены в Railway
-    TOKEN = os.environ["TG_TOKEN"]
-    RAILWAY_URL = os.environ["RAILWAY_URL"]  # например "https://cosmeticbot-production.up.railway.app"
-    PORT = int(os.environ.get("PORT", 5000))
+if __name__ == "__main__":
+    # удаляем старый вебхук (на случай деплоя повторно)
+    app.bot.delete_webhook()
 
-    # Собираем приложение
-    app = ApplicationBuilder().token(TOKEN).build()
+    # формируем URL нашего хука
+    hook_path   = f"/hook/{TOKEN}"
+    webhook_url = RAILWAY_URL + hook_path
 
-    # Подключаем хендлеры
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    # вешаем вебхук
+    app.bot.set_webhook(webhook_url)
+    logging.info(f"Webhook установлен на {webhook_url}")
 
-    # Формируем URL вебхука
-    webhook_path = f"/hook/{TOKEN}"
-    webhook_url = f"{RAILWAY_URL}{webhook_path}"
-    logger.info("Устанавливаем webhook на %s", webhook_url)
-
-    # Этот метод сам выставит setWebhook и запустит HTTP‑сервер
+    # запускаем встроенный сервер
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=webhook_path,
-        webhook_url=webhook_url,
-        drop_pending_updates=True,
+        webhook_path=hook_path,
+        # таймауты и опции можно не трогать
     )
-
-
-if __name__ == "__main__":
-    main()
