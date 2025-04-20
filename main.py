@@ -9,16 +9,17 @@ from telegram.ext import (
     filters,
 )
 
-# Логирование HTTP‑запросов и внутренних ошибок
+# Логируем, чтобы видеть ошибки при старте
 logging.basicConfig(
-    format="%(asctime)s — %(name)s — %(levelname)s — %(message)s", level=logging.INFO
+    format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Пришли мне фото косметического состава, я сделаю анализ."
+        "Привет! Пришли мне фото косметического состава, и я его проанализирую."
     )
 
 
@@ -27,37 +28,36 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = await photo.get_file()
     path = f"/tmp/{photo.file_id}.jpg"
     await file.download_to_drive(path)
-    # TODO: здесь OCR + OpenAI‑анализ
-    await update.message.reply_text("Готово, скоро вышлю отчёт по составу.")
+    # TODO: здесь сделаем OCR + OpenAI‑анализ
+    await update.message.reply_text("Готово, скоро отправлю отчёт по составу.")
     # os.remove(path)
 
 
 def main():
+    # Прочитаем переменные окружения, которые настроены в Railway
     TOKEN = os.environ["TG_TOKEN"]
-    RAILWAY_URL = os.environ["RAILWAY_URL"]  # пример: https://cosmeticbot-production.up.railway.app
+    RAILWAY_URL = os.environ["RAILWAY_URL"]  # например "https://cosmeticbot-production.up.railway.app"
     PORT = int(os.environ.get("PORT", 5000))
 
-    app = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .build()
-    )
+    # Собираем приложение
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    # Регистрируем хендлеры
+    # Подключаем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    # Устанавливаем webhook в Telegram
-    webhook_url = f"{RAILWAY_URL}/hook/{TOKEN}"
-    app.bot.set_webhook(webhook_url)
-    logger.info("Webhook установлен на %s", webhook_url)
+    # Формируем URL вебхука
+    webhook_path = f"/hook/{TOKEN}"
+    webhook_url = f"{RAILWAY_URL}{webhook_path}"
+    logger.info("Устанавливаем webhook на %s", webhook_url)
 
-    # Запускаем HTTP‑сервер, который будет принимать POST от Telegram
+    # Этот метод сам выставит setWebhook и запустит HTTP‑сервер
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=f"/hook/{TOKEN}",     # <-- здесь раньше было webhook_path — теперь url_path
-        drop_pending_updates=True,      # опционально, чтобы не накапливались старые апдейты
+        url_path=webhook_path,
+        webhook_url=webhook_url,
+        drop_pending_updates=True,
     )
 
 
