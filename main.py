@@ -1,77 +1,62 @@
-# main.py
 import os
-import logging
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    ContextTypes,
     filters,
 )
-from dotenv import load_dotenv
 
-# 1) Загрузка переменных окружения из .env (локально)
-load_dotenv()
+# Читаем токен, URL и API‑ключ из переменных окружения
+TG_TOKEN      = os.environ["TG_TOKEN"]
+OPENAI_API_KEY= os.environ["OPENAI_API_KEY"]
+RAILWAY_URL   = os.environ["RAILWAY_URL"]  # например "https://cosmeticbot-production.up.railway.app"
 
-# 2) Читаем токен и URL из переменных окружения
-TOKEN       = os.getenv("TG_TOKEN")       # твой телеграм‑токен
-RAILWAY_URL = os.getenv("RAILWAY_URL")    # https://…up.railway.app
-PORT        = int(os.getenv("PORT", 5000))
+WEBHOOK_PATH = f"/hook/{TG_TOKEN}"
+WEBHOOK_URL  = f"{RAILWAY_URL}{WEBHOOK_PATH}"
 
-if not TOKEN or not RAILWAY_URL:
-    raise RuntimeError("TG_TOKEN или RAILWAY_URL не заданы в окружении!")
-
-# 3) Настраиваем логирование
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-
-# 4) Создаём Flask‑приложение
 app = Flask(__name__)
 
-# 5) Создаём Telegram‑бот
-application = ApplicationBuilder().token(TOKEN).build()
+# 1) Сборка асинхронного приложения-бота
+application = ApplicationBuilder().token(TG_TOKEN).build()
 
-# 6) Определяем хэндлеры
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! Пришли мне фото состава косметики, " 
-        "и я попробую его проанализировать."
-    )
+# 2) Регистрируем хендлеры
+async def start(update: Update, context):
+    await update.message.reply_text("Привет! Пришлите, пожалуйста, фото состава косметики.")
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Берём самое крупное фото из сообщения
+async def handle_photo(update: Update, context):
     photo = update.message.photo[-1]
-    # Скачиваем его во временный файл
-    file = await context.bot.get_file(photo.file_id)
-    path = f"/tmp/{photo.file_id}.jpg"
-    await file.download_to_drive(path)
-    # TODO: здесь можно вызвать OCR и OpenAI для анализа
-    await update.message.reply_text("Готово! Скоро пришлю отчёт по составу.")
-    try:
-        os.remove(path)
-    except OSError:
-        pass
+    file = await photo.get_file()
+    tmp_path = f"tmp_{photo.file_id}.jpg"
+    await file.download_to_drive(tmp_path)
 
-# 7) Регистрируем хэндлеры в приложении
+    # TODO: здесь вызываете OpenAI для анализа состава
+    await update.message.reply_text("Готово, скоро пришлю отчёт.")
+    os.remove(tmp_path)
+
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-# 8) Маршрут Webhook-а, куда Telegram будет слать апдейты
-@app.route(f"/hook/{TOKEN}", methods=["POST"])
+
+# 3) Маршрут Flask для приема вебхуков
+@app.route(WEBHOOK_PATH, methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    application.update_queue.put(update)
+    # Передаём апдейт в очередь PTB
+    application.create_task(application.process_update(update))
     return "OK"
 
-# 9) Точка входа
+
+def main():
+    # Устанавливаем вебхук перед запуском Flask
+    asyncio.run(application.bot.set_webhook(WEBHOOK_URL))
+    # Запускаем Flask‑сервера на порту из окружения (Railway задаёт PORT сам)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
-    # Ставим вебхук в Telegram
-    webhook_url = f"{RAILWAY_URL}/hook/{TOKEN}"
-    application.bot.set_webhook(webhook_url)
-    # Запускаем встроенный Flask‑сервер
-    app.run(host="0.0.0.0", port=PORT)
+    main()
