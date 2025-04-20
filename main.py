@@ -3,13 +3,13 @@ import logging
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
-    ContextTypes,
     CommandHandler,
     MessageHandler,
+    ContextTypes,
     filters,
 )
 
-# Включаем логгирование, чтобы можно было видеть HTTP‑запросы и ошибки
+# Логирование HTTP‑запросов и внутренних ошибок
 logging.basicConfig(
     format="%(asctime)s — %(name)s — %(levelname)s — %(message)s", level=logging.INFO
 )
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Пришли мне фото косметического состава, я его проанализирую."
+        "Привет! Пришли мне фото косметического состава, я сделаю анализ."
     )
 
 
@@ -27,39 +27,39 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = await photo.get_file()
     path = f"/tmp/{photo.file_id}.jpg"
     await file.download_to_drive(path)
-    # TODO: здесь ваш OCR + анализ через OpenAI
-    await update.message.reply_text("Готово, скоро пришлю отчёт по составу.")
+    # TODO: здесь OCR + OpenAI‑анализ
+    await update.message.reply_text("Готово, скоро вышлю отчёт по составу.")
     # os.remove(path)
 
 
-async def main():
-    # Telegram‑токен и URL вашего Railway‑сервиса читаем из переменных окружения
+def main():
     TOKEN = os.environ["TG_TOKEN"]
-    RAILWAY_URL = os.environ["RAILWAY_URL"]  # без конца «/»
+    RAILWAY_URL = os.environ["RAILWAY_URL"]  # пример: https://cosmeticbot-production.up.railway.app
     PORT = int(os.environ.get("PORT", 5000))
 
-    # Создаём приложение и регистрируем хендлеры
     app = (
         ApplicationBuilder()
         .token(TOKEN)
         .build()
     )
+
+    # Регистрируем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # Устанавливаем webhook в Telegram
     webhook_url = f"{RAILWAY_URL}/hook/{TOKEN}"
-    await app.bot.set_webhook(webhook_url)
-    logger.info("Webhook set to %s", webhook_url)
+    app.bot.set_webhook(webhook_url)
+    logger.info("Webhook установлен на %s", webhook_url)
 
-    # Запускаем встроенный HTTP‑сервер, который будет принимать POST запросы от Telegram
+    # Запускаем HTTP‑сервер, который будет принимать POST от Telegram
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_path=f"/hook/{TOKEN}",
+        url_path=f"/hook/{TOKEN}",     # <-- здесь раньше было webhook_path — теперь url_path
+        drop_pending_updates=True,      # опционально, чтобы не накапливались старые апдейты
     )
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
