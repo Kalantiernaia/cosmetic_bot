@@ -1,81 +1,53 @@
 import os
 import logging
 from dotenv import load_dotenv
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
 
-# ========= Настройка логирования (необязательно) =========
+# 1) Загрузка .env
+load_dotenv()
+TG_TOKEN       = os.environ["TG_TOKEN"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]   # если нужен
+RAILWAY_URL    = os.environ["RAILWAY_URL"]
+
+# 2) Порт и путь берём из окружения с дефолтами
+PORT     = int(os.environ.get("PORT", 5000))
+URL_PATH = f"/hook/{TG_TOKEN}"
+WEBHOOK_URL = f"{RAILWAY_URL}{URL_PATH}"
+
+# 3) Логирование
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
+# 4) Пример хендлера
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Привет! Я бот для анализа косметики.")
 
-# ========= Загрузка переменных окружения =========
-load_dotenv()  # если есть .env-файл локально
-TG_TOKEN    = os.environ["TG_TOKEN"]
-RAILWAY_URL = os.environ["RAILWAY_URL"]   # что-то вроде https://your-app.up.railway.app
-PORT        = int(os.environ.get("PORT", 5000))
+# 5) Точка входа
+def main():
+    # 5.1) Создаём Application
+    app = ApplicationBuilder().token(TG_TOKEN).build()
 
+    # 5.2) Регистрируем хендлеры
+    app.add_handler(CommandHandler("start", start))
+    # TODO: тут ваши OCR/анализ‑хендлеры
 
-# ========= Обработчики команд и сообщений =========
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "👋 Привет! Отправь мне фото или текст состава косметики — я его проанализирую."
-    )
-
-async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO: сюда ваш код OCR / анализа состава
-    # Например, вы могли сделать:
-    #   text = ocr_recognize(update.message.photo[-1].file_id)
-    #   result = analyze_ingredients(text)
-    #   await update.message.reply_text(result)
+    # 5.3) Запускаем вебхук
     #
-    # А пока просто отзовёмся эхо:
-    incoming = ""
-    if update.message.photo:
-        incoming = "📷 получил фото, но OCR пока не реализован."
-    else:
-        incoming = update.message.text or "🤔 пустое сообщение"
-    await update.message.reply_text(f"Результат анализа: «{incoming}»")
-
-
-# ========= Основная функция =========
-def main() -> None:
-    application = Application.builder().token(TG_TOKEN).build()
-
-    # регистрируем все хендлеры
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(
-        MessageHandler(filters.PHOTO | filters.TEXT, analyze)
-    )
-
-    # ========== Настройка Webhook =========
-    # Удаляем старый webhook (если был)
-    application.bot.delete_webhook(drop_pending_updates=True)
-
-    # Путь, на который Telegram будет слать POST‑запросы
-    webhook_path = f"/hook/{TG_TOKEN}"
-
-    # Устанавливаем новый webhook
-    application.bot.set_webhook(f"{RAILWAY_URL}{webhook_path}")
-
-    # Запускаем встроенный веб‑сервер на всех интерфейсах
-    application.run_webhook(
+    # Важно: используем url_path, а не webhook_path,
+    # и передаём полный публичный webhook_url.
+    #
+    # drop_pending_updates=True сбросит накопившиеся апдейты
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_path=webhook_path,
-        url_path=webhook_path,
+        url_path=URL_PATH,         # путь в контейнере
+        webhook_url=WEBHOOK_URL,   # полный URL, куда Telegram будет шлать
         drop_pending_updates=True,
     )
-
 
 if __name__ == "__main__":
     main()
