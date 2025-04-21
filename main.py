@@ -1,98 +1,69 @@
 import os
 import logging
-
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
+    ContextTypes,
 )
-from PIL import Image
-import pytesseract
-import openai
+from dotenv import load_dotenv
 
-# ——————————————————————————————————————————————————————————————
-# Логирование
+# 1) подгружаем .env (локально) или переменные окружения в Railway
+load_dotenv()
+
+# 2) достаём нужные переменные
+TOKEN       = os.environ["TG_TOKEN"]
+RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")  # без завершающего /
+PORT        = int(os.environ.get("PORT", 5000))
+
+# 3) логирование
 logging.basicConfig(
     format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ——————————————————————————————————————————————————————————————
-# Переменные окружения
-TG_TOKEN       = os.environ["TG_TOKEN"]
-RAILWAY_URL    = os.environ["RAILWAY_URL"].rstrip("/")   # без завершающего /
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-openai.api_key = OPENAI_API_KEY
-
-PORT      = int(os.environ.get("PORT", 5000))
-URL_PATH  = f"/hook/{TG_TOKEN}"
-WEBHOOK   = f"{RAILWAY_URL}{URL_PATH}"
-
-# ——————————————————————————————————————————————————————————————
-async def start(update: Update, context):
+# 4) хендлеры
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Привет! Пришли мне фото этикетки с ингредиентами — "
-        "распознаю текст, отмечу опасные компоненты и предложу натуральные аналоги."
+        "Привет! Я бот для анализа состава косметики. Пришли мне фото состава — отвечу отчётом."
     )
 
-# ——————————————————————————————————————————————————————————————
-async def handle_photo(update: Update, context):
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     photo = update.message.photo[-1]
-    file  = await photo.get_file()
-    tmpf  = f"tmp/{photo.file_id}.jpg"
-    os.makedirs("tmp", exist_ok=True)
-    await file.download_to_drive(tmpf)
+    file = await photo.get_file()
+    path = f"/tmp/{photo.file_id}.jpg"
+    await file.download_to_drive(path)
+    # TODO: тут ваш OCR и анализ через OpenAI
+    await update.message.reply_text("Фото получено, анализирую…")
+    # os.remove(path)
 
-    try:
-        text = pytesseract.image_to_string(
-            Image.open(tmpf), lang="rus+eng"
-        ).strip()
-        if not text:
-            await update.message.reply_text("Не смог распознать текст. Попробуй другое фото.")
-            return
+# 5) точка входа
+def main() -> None:
+    # 5.1 создаём приложение
+    app = ApplicationBuilder().token(TOKEN).build()
 
-        prompt = (
-            "Перед тобой список ингредиентов косметики:\n"
-            f"{text}\n\n"
-            "Отметь опасные/раздражающие вещества и предложи натуральные альтернативы."
-        )
-        resp = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-        )
-        result = resp.choices[0].message.content.strip()
-        await update.message.reply_text(result)
-
-    except Exception:
-        logger.exception("Ошибка обработки фото")
-        await update.message.reply_text("Что‑то пошло не так. Попробуй позже.")
-
-    finally:
-        try:
-            os.remove(tmpf)
-        except OSError:
-            pass
-
-# ——————————————————————————————————————————————————————————————
-def main():
-    app = ApplicationBuilder().token(TG_TOKEN).build()
-
+    # 5.2 навешиваем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    logger.info(f"Запускаем webhook: порт={PORT}, path={URL_PATH}, url={WEBHOOK}")
+    # 5.3 настраиваем вебхук
+    url_path   = f"/hook/{TOKEN}"
+    webhook_url = f"{RAILWAY_URL}{url_path}"
+    logger.info(
+        "Запускаем webhook: port=%s, path=%s, url=%s",
+        PORT, url_path, webhook_url
+    )
 
-    # Здесь автоматически удалится старый вебхук и поставится новый
+    # 5.4 запускаем
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=URL_PATH,
-        webhook_url=WEBHOOK,
+        url_path=url_path,
         drop_pending_updates=True,
+        webhook_url=webhook_url,
     )
 
 if __name__ == "__main__":
