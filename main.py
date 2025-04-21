@@ -1,52 +1,66 @@
 import os
 import logging
 from dotenv import load_dotenv
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
 
-# 1) Загрузка .env
-load_dotenv()
-TG_TOKEN       = os.environ["TG_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]   # если нужен
-RAILWAY_URL    = os.environ["RAILWAY_URL"]
+# ==============  
+#  Настройка  
+# ==============
+load_dotenv()  # для локальной разработки; на Railway считывает из переменных сервиса
+TG_TOKEN    = os.environ["TG_TOKEN"]
+OPENAI_KEY  = os.environ["OPENAI_API_KEY"]
+RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")  # например https://cosmeticbot-production.up.railway.app
+PORT        = int(os.environ.get("PORT", 5000))
 
-# 2) Порт и путь берём из окружения с дефолтами
-PORT     = int(os.environ.get("PORT", 5000))
-URL_PATH = f"/hook/{TG_TOKEN}"
+# Путь, куда Telegram будет присылать вебхуки
+URL_PATH   = f"/hook/{TG_TOKEN}"
 WEBHOOK_URL = f"{RAILWAY_URL}{URL_PATH}"
 
-# 3) Логирование
+# ==============
+#  Логирование  
+# ==============
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# 4) Пример хендлера
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Привет! Я бот для анализа косметики.")
+# ====================
+#  Обработчики команд  
+# ====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Привет! Я бот по анализу состава косметики. Пришли мне фото или текст состава.")
 
-# 5) Точка входа
-def main():
-    # 5.1) Создаём Application
-    app = ApplicationBuilder().token(TG_TOKEN).build()
+# ================
+#  Основная логика  
+# ================
+def main() -> None:
+    # 1) Создаём приложение
+    app = ApplicationBuilder()\
+        .token(TG_TOKEN)\
+        .build()
 
-    # 5.2) Регистрируем хендлеры
+    # 2) Регистрируем все хендлеры
     app.add_handler(CommandHandler("start", start))
-    # TODO: тут ваши OCR/анализ‑хендлеры
+    # ... сюда добавьте остальные CommandHandler / MessageHandler для OCR и OpenAI ...
 
-    # 5.3) Запускаем вебхук
-    #
-    # Важно: используем url_path, а не webhook_path,
-    # и передаём полный публичный webhook_url.
-    #
-    # drop_pending_updates=True сбросит накопившиеся апдейты
+    # 3) Сбрасываем старые вебхуки и ставим новый
+    #    drop_pending_updates=True — удалит старые неотправленные апдейты
+    app.bot.delete_webhook(drop_pending_updates=True)
+    app.bot.set_webhook(url=WEBHOOK_URL, path=URL_PATH)
+
+    # 4) Запускаем встроенный HTTP‑сервер PTB
+    #    listen="0.0.0.0" чтобы принимать извне, порт берём из PORT
+    #    url_path = URL_PATH чтобы совпадало с тем, что мы передали в set_webhook
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=URL_PATH,         # путь в контейнере
-        webhook_url=WEBHOOK_URL,   # полный URL, куда Telegram будет шлать
-        drop_pending_updates=True,
+        url_path=URL_PATH,
     )
 
 if __name__ == "__main__":
