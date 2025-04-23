@@ -1,74 +1,45 @@
 import os
-import logging
+import asyncio
 from telegram import Update
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
+    Application, 
+    CommandHandler, 
+    ContextTypes
 )
-from dotenv import load_dotenv
 
-load_dotenv()
+# Читать токен и URL из окружения
+TOKEN       = os.environ["TG_TOKEN"]
+RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")
+PORT        = int(os.environ.get("PORT", 5000))
 
-# Токен бота
-TG_TOKEN = os.getenv("TG_TOKEN")
-# Ваш OpenAI‑ключ
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# Railway предоставляет корректный URL автоматически
-RAILWAY_URL = os.getenv("RAILWAY_URL")
+# Пути для вебхука
+WEBHOOK_PATH = f"hook/{TOKEN}"
+WEBHOOK_URL  = f"{RAILWAY_URL}/{WEBHOOK_PATH}"
 
-# Порт берётся из переменной PORT, Railway подставляет его сам
-PORT = int(os.environ.get("PORT", 5000))
-
-# Путь вебхука и полный URL, объединяя Railway URL + токен
-WEBHOOK_PATH = f"/hook/{TG_TOKEN}"
-WEBHOOK_URL = f"{RAILWAY_URL}{WEBHOOK_PATH}"
-
-# --- Ваши хендлеры ---
+# Простейший handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я готов анализировать состав косметики.")
+    await update.message.reply_text("Бот запущен и готов к анализу!")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пришли фотографию этикетки, я распознаю ингредиенты.")
-    
-# Добавьте сюда свой хендлер OCR/анализа
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # … ваш код OCR, OpenAI, ответ пользователю …
-    await update.message.reply_text("Обработка завершена!")
+async def main():
+    # Строим асинхронное приложение
+    application = Application.builder().token(TOKEN).build()
 
-def main():
-    # Строим приложение
-    app = (
-        Application
-        .builder()
-        .token(TG_TOKEN)
-        .build()
-    )
+    # Регистрируем команду
+    application.add_handler(CommandHandler("start", start))
 
-    # Регистрируем хендлеры
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+    # 1) Сбросить старый вебхук
+    await application.bot.delete_webhook(drop_pending_updates=True)
 
-    # Логгирование
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO
-    )
+    # 2) Установить новый
+    await application.bot.set_webhook(url=WEBHOOK_URL)
 
-    # Сбрасываем старый вебхук и устанавливаем новый (без передачи пути!)
-    app.bot.delete_webhook(drop_pending_updates=True)
-    app.bot.set_webhook(url=WEBHOOK_URL)
-
-    # Запускаем встроенный сервер для приёма POST от Telegram
-    app.run_webhook(
+    # 3) Запустить встроенный веб-сервер
+    await application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        path=WEBHOOK_PATH,
-        webhook_url=WEBHOOK_URL,
+        url_path=WEBHOOK_PATH,
+        webhook_url=WEBHOOK_URL
     )
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
