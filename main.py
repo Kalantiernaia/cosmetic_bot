@@ -1,45 +1,55 @@
 import os
+from dotenv import load_dotenv
 import asyncio
 from telegram import Update
 from telegram.ext import (
-    Application, 
-    CommandHandler, 
-    ContextTypes
+    Application,
+    CommandHandler,
+    ContextTypes,
 )
 
-# Читать токен и URL из окружения
-TOKEN       = os.environ["TG_TOKEN"]
-RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")
-PORT        = int(os.environ.get("PORT", 5000))
+# ---------------------------------------------------------------------------- #
+#                              ЗАГРУЗКА .env-ФАЙЛА                            #
+# ---------------------------------------------------------------------------- #
+load_dotenv()  # прочитает .env из той же папки, где лежит main.py
 
-# Пути для вебхука
-WEBHOOK_PATH = f"hook/{TOKEN}"
-WEBHOOK_URL  = f"{RAILWAY_URL}/{WEBHOOK_PATH}"
+# ---------------------------------------------------------------------------- #
+#                               ПЕРЕМЕННЫЕ СРЕДЫ                              #
+# ---------------------------------------------------------------------------- #
+TOKEN        = os.environ["TG_TOKEN"]
+OPENAI_KEY   = os.environ["OPENAI_API_KEY"]
+RAILWAY_URL  = os.environ["RAILWAY_URL"].rstrip("/")  # уберём возможный слеш на конце
+PORT         = int(os.environ.get("PORT", 8443))     # Railway сам подставит нужный PORT
 
-# Простейший handler
+# ---------------------------------------------------------------------------- #
+#                                ОБРАБОТЧИКИ                                   #
+# ---------------------------------------------------------------------------- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Бот запущен и готов к анализу!")
+    """ /start """
+    await update.message.reply_text("Привет! Я бот для анализа косметики.")
 
-async def main():
-    # Строим асинхронное приложение
-    application = Application.builder().token(TOKEN).build()
+# сюда можно добавить другие хендлеры, например для распознавания фото и т.п.
+# ---------------------------------------------------------------------------- #
+#                                Запуск webhook                                #
+# ---------------------------------------------------------------------------- #
+def main():
+    app = Application.builder().token(TOKEN).build()
 
-    # Регистрируем команду
-    application.add_handler(CommandHandler("start", start))
+    # зарегистрируем минимум один хендлер
+    app.add_handler(CommandHandler("start", start))
 
-    # 1) Сбросить старый вебхук
-    await application.bot.delete_webhook(drop_pending_updates=True)
+    # путь для webhook — должен совпадать с тем, что передадим в url
+    webhook_path = f"/hook/{TOKEN}"
 
-    # 2) Установить новый
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-
-    # 3) Запустить встроенный веб-сервер
-    await application.run_webhook(
+    # запускаем встроенный aiohttp-сервер на 0.0.0.0:PORT
+    # он сам установит вебхук в Telegram по адресу RAILWAY_URL + webhook_path
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=WEBHOOK_PATH,
-        webhook_url=WEBHOOK_URL
+        url_path=webhook_path,
+        webhook_url=f"{RAILWAY_URL}{webhook_path}",
+        drop_pending_updates=True,  # удалим старые апдейты при перезапуске
     )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
