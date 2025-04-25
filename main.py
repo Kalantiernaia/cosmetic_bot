@@ -1,48 +1,66 @@
 import os
-from dotenv import load_dotenv
-import openai
-
+import logging
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
+import openai
 
-# 1) Подгружаем переменные из .env
-load_dotenv()
-TG_TOKEN       = os.environ["TG_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-RAILWAY_URL    = os.environ.get("RAILWAY_URL")       # будет определён на Railway
-PORT           = int(os.environ.get("PORT", 8000))   # Railway сам пробросит PORT
+# ——— Логирование —————————————————————————————————————
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# 2) Настраиваем OpenAI
-openai.api_key = OPENAI_API_KEY
 
-# 3) Простейший handler для /start
+# ——— Обработчик команды /start —————————————————————————
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 Привет! Я бот для анализа косметики. Пришли мне описание продукта — расскажу, как он работает."
+        "Привет! Я бот для анализа косметики. Пришли описание продукта, и я дам оценку."
     )
 
-def main() -> None:
-    # 4) Строим приложение
-    app = ApplicationBuilder().token(TG_TOKEN).build()
 
-    # 5) Регистрируем handlers
-    app.add_handler(CommandHandler("start", start))
-
-    # 6) Если запущено на Railway — работаем через webhook
-    if RAILWAY_URL:
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=f"/hook/{TG_TOKEN}",                 # <-- url_path, не path и не webhook_path
-            webhook_url=f"{RAILWAY_URL}/hook/{TG_TOKEN}",  # полный URL на ваш Railway-хук
+# ——— Обработчик любых текстовых сообщений —————————————
+async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_text = update.message.text
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+    try:
+        resp = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=f"Дай экспертный анализ косметического продукта: «{user_text}»",
+            max_tokens=200,
         )
-    else:
-        # 7) Иначе в локале — polling
-        app.run_polling()
+        answer = resp.choices[0].text.strip()
+    except Exception as e:
+        logger.error("OpenAI error: %s", e)
+        answer = "Извини, не смог связаться с OpenAI."
+    await update.message.reply_text(answer)
+
+
+# ——— Точка входа —————————————————————————————————————
+def main() -> None:
+    token = os.environ["TG_TOKEN"]
+    app = ApplicationBuilder().token(token).build()
+
+    # Регистрируем хэндлеры
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze))
+
+    # Параметры вебхука
+    port = int(os.environ.get("PORT", "8443"))
+    railway_url = os.environ["RAILWAY_URL"]
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=f"hook/{token}",
+        webhook_url=f"{railway_url}/hook/{token}",
+    )
+
 
 if __name__ == "__main__":
     main()
