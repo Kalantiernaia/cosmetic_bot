@@ -7,75 +7,78 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# Включим простой логгер, чтобы видеть, что происходит
+# ================
+#  Настройка логгирования
+# ================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Токен бота
-TOKEN = os.getenv("TG_TOKEN")
-# Публичный URL вашего Railway-приложения, например "https://cosmeticbot-production.up.railway.app"
-RAILWAY_URL = os.getenv("RAILWAY_URL")
-# Порт, на котором Railway ожидает HTTP-сервер
-PORT = int(os.getenv("PORT", "8443"))
-
-# Путь для приёма вебхуков (должен совпадать в set_webhook и в run_webhook)
-HOOK_PATH = f"/hook/{TOKEN}"
+# ================
+#  Переменные окружения
+# ================
+TOKEN      = os.getenv("TG_TOKEN")        # ваш Bot Token
+RAILWAY_URL = os.getenv("RAILWAY_URL")    # например https://cosmeticbot-production.up.railway.app
+PORT       = int(os.getenv("PORT", "8443"))  # порт, который слушает Railway
+HOOK_PATH  = f"/hook/{TOKEN}"             # путь должен совпадать с тем, что укажем в set_webhook
 
 
+# ================
+#  Обработчики команд
+# ================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /start."""
     await update.message.reply_text(
         "Привет! Я бот по безопасности косметики.\n\n"
         "Доступные команды:\n"
         "/start — запустить бота\n"
-        "/help — инструкции по использованию\n\n"
-        "Чтобы использовать бота, просто отправьте /start."
+        "/help — инструкции по использованию"
     )
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /help."""
     await update.message.reply_text(
-        "Этот бот ничего не умеет, кроме демонстрации работы вебхуков.\n"
-        "Просто отправьте ему /start."
+        "Инструкции по использованию:\n"
+        "Просто отправьте /start, и бот ответит."
     )
+
+
+# ================
+#  Функция, которая выполнится при старте приложения
+# ================
+async def on_startup(app):
+    # 1) Удаляем старый вебхук (если есть)
+    logger.info("Deleting old webhook (if any)…")
+    await app.bot.delete_webhook()
+
+    # 2) Ставим новый вебхук на наш публичный URL
+    full_webhook = RAILWAY_URL + HOOK_PATH
+    logger.info(f"Setting webhook to {full_webhook}")
+    await app.bot.set_webhook(url=full_webhook)
 
 
 def main() -> None:
-    """Главная функция: настраиваем и запускаем вебхук-сервер."""
-    # 1) Собираем приложение
+    # 1) Строим приложение
     app = (
         ApplicationBuilder()
         .token(TOKEN)
         .build()
     )
 
-    # 2) Регистрируем обработчики команд
+    # 2) Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help",  help_command))
+    app.add_handler(CommandHandler("help", help_command))
 
-    # 3) Сброс старого вебхука и установка нового
-    #    Без этого Telegram может продолжать слать на старый URL
-    logger.info("Deleting old webhook (if any)…")
-    app.bot.delete_webhook().result()
+    # 3) Регистрируем функцию on_startup
+    app.post_init(on_startup)
 
-    full_hook_url = RAILWAY_URL + HOOK_PATH
-    logger.info(f"Setting webhook to {full_hook_url} …")
-    app.bot.set_webhook(url=full_hook_url).result()
-
-    # 4) Запуск сервера для приёма вебхуков от Telegram
-    #    Telegram будет слать POST-запросы на этот путь
-    logger.info(
-        f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}"
-    )
+    # 4) Запускаем HTTP-сервер для приёма вебхуков
+    logger.info(f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=HOOK_PATH,
-        webhook_url=full_hook_url,
+        webhook_url=RAILWAY_URL + HOOK_PATH,
     )
 
 
