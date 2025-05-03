@@ -1,5 +1,6 @@
 import os
 import logging
+
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -7,27 +8,20 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ================
-#  Настройка логгирования
-# ================
+# 1) Логгирование
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ================
-#  Переменные окружения
-# ================
-TOKEN      = os.getenv("TG_TOKEN")        # ваш Bot Token
-RAILWAY_URL = os.getenv("RAILWAY_URL")    # например https://cosmeticbot-production.up.railway.app
-PORT       = int(os.getenv("PORT", "8443"))  # порт, который слушает Railway
-HOOK_PATH  = f"/hook/{TOKEN}"             # путь должен совпадать с тем, что укажем в set_webhook
+# 2) Переменные окружения
+TOKEN       = os.getenv("TG_TOKEN")
+RAILWAY_URL = os.getenv("RAILWAY_URL")      # без слеша в конце!
+PORT        = int(os.getenv("PORT", "8443"))
+HOOK_PATH   = f"/hook/{TOKEN}"
 
-
-# ================
-#  Обработчики команд
-# ================
+# 3) Обработчики команд
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Привет! Я бот по безопасности косметики.\n\n"
@@ -39,48 +33,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Инструкции по использованию:\n"
-        "Просто отправьте /start, и бот ответит."
+        "Отправьте /start, и бот скажет «привет»."
     )
 
-
-# ================
-#  Функция, которая выполнится при старте приложения
-# ================
-async def on_startup(app):
-    # 1) Удаляем старый вебхук (если есть)
+# 4) Функция-хук, выполняемая при старте HTTP-сервера
+async def on_startup() -> None:
+    app = ApplicationBuilder().token(TOKEN).build()
+    # (мы не используем app внутри — просто логируем)
     logger.info("Deleting old webhook (if any)…")
-    await app.bot.delete_webhook()
+    # NOTE: app.bot — бот-объект, но нам нужно получить его из глобального Application:
+    from telegram.ext import applications
+    running_app = applications.get_current_application()
+    await running_app.bot.delete_webhook()
 
-    # 2) Ставим новый вебхук на наш публичный URL
-    full_webhook = RAILWAY_URL + HOOK_PATH
-    logger.info(f"Setting webhook to {full_webhook}")
-    await app.bot.set_webhook(url=full_webhook)
-
+    new_webhook = RAILWAY_URL + HOOK_PATH
+    logger.info(f"Setting webhook to {new_webhook}")
+    await running_app.bot.set_webhook(url=new_webhook)
 
 def main() -> None:
-    # 1) Строим приложение
+    # Собираем приложение
     app = (
         ApplicationBuilder()
         .token(TOKEN)
         .build()
     )
 
-    # 2) Регистрируем обработчики
+    # Регистрируем команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
 
-    # 3) Регистрируем функцию on_startup
-    app.post_init(on_startup)
-
-    # 4) Запускаем HTTP-сервер для приёма вебхуков
+    # Запускаем webhook-сервер
     logger.info(f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=HOOK_PATH,
         webhook_url=RAILWAY_URL + HOOK_PATH,
+        on_startup=on_startup,       # <--- сюда
     )
-
 
 if __name__ == "__main__":
     main()
