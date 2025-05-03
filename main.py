@@ -1,65 +1,57 @@
-import os
 import logging
+import os
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
     ContextTypes,
-    filters,
 )
-import openai
 
-# ——— Логирование —————————————————————————————————————
+# Включаем логирование, чтобы было видно, что происходит внутри
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
 
-# ——— Обработчик команды /start —————————————————————————
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /start."""
     await update.message.reply_text(
-        "Привет! Я бот для анализа косметики. Пришли описание продукта, и я дам оценку."
+        "Привет! Я бот по безопасности косметики.\n"
+        "Доступные команды:\n"
+        "/start — запустить бота\n"
+        "/help — инструкции по использованию"
     )
 
 
-# ——— Обработчик любых текстовых сообщений —————————————
-async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_text = update.message.text
-    openai.api_key = os.environ["OPENAI_API_KEY"]
-    try:
-        resp = openai.Completion.create(
-            model="text-davinci-003",
-            prompt=f"Дай экспертный анализ косметического продукта: «{user_text}»",
-            max_tokens=200,
-        )
-        answer = resp.choices[0].text.strip()
-    except Exception as e:
-        logger.error("OpenAI error: %s", e)
-        answer = "Извини, не смог связаться с OpenAI."
-    await update.message.reply_text(answer)
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /help."""
+    await update.message.reply_text(
+        "Чтобы использовать бота, просто отправьте ему /start."
+    )
 
 
-# ——— Точка входа —————————————————————————————————————
 def main() -> None:
-    token = os.environ["TG_TOKEN"]
-    app = ApplicationBuilder().token(token).build()
+    """Точка входа — создаём приложение и запускаем polling."""
+    token = os.getenv("TG_TOKEN")
+    if not token:
+        logger.error("Переменная TG_TOKEN не задана в окружении!")
+        return
 
-    # Регистрируем хэндлеры
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze))
-
-    # Параметры вебхука
-    port = int(os.environ.get("PORT", "8443"))
-    railway_url = os.environ["RAILWAY_URL"]
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=f"hook/{token}",
-        webhook_url=f"{railway_url}/hook/{token}",
+    app = (
+        ApplicationBuilder()
+        .token(token)
+        .build()
     )
+
+    # Регистрируем командные обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+
+    # Запускаем бота в режиме polling
+    logger.info("Запускаем бота в режиме polling…")
+    app.run_polling()
 
 
 if __name__ == "__main__":
