@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 
 # ————————————————
-# Настройка логирования
+# Логирование
 # ————————————————
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -18,15 +18,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ————————————————
-# Чтение настроек из окружения
+# Переменные окружения
 # ————————————————
-TOKEN       = os.getenv("TG_TOKEN")
-RAILWAY_URL = os.getenv("RAILWAY_URL")       # например https://<your-service>.up.railway.app
-PORT        = int(os.getenv("PORT", "8443"))
-HOOK_PATH   = f"/hook/{TOKEN}"
+TOKEN = os.getenv("TG_TOKEN")
+RAILWAY_URL = os.getenv("RAILWAY_URL")  # без слеша в конце
+PORT = int(os.getenv("PORT", "8443"))
+HOOK_PATH = f"/hook/{TOKEN}"
 
 if not TOKEN or not RAILWAY_URL:
-    logger.error("Не заданы переменные окружения TG_TOKEN и/или RAILWAY_URL.")
+    logger.error("Необходимо задать TG_TOKEN и RAILWAY_URL")
     exit(1)
 
 
@@ -43,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Чтобы начать, отправьте команду /start.\n"
+        "Чтобы начать, отправьте /start.\n"
         "Больше команд пока нет."
     )
 
@@ -52,25 +52,24 @@ def main() -> None:
     # 1) Создаём приложение
     app = Application.builder().token(TOKEN).build()
 
-    # 2) Регистрируем команды
+    # 2) Регистрируем командные хэндлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
 
-    # 3) Сначала удаляем старый webhook и ставим новый
-    #    (бот-объект внутри приложения доступен через app.bot)
+    # 3) Сбрасываем старый вебхук и устанавливаем новый
     logger.info("Deleting old webhook (if any)…")
-    app.bot.delete_webhook(drop_pending_updates=True)
+    app.run_sync(app.bot.delete_webhook, drop_pending_updates=True)
 
     new_url = RAILWAY_URL + HOOK_PATH
     logger.info(f"Setting new webhook to {new_url}")
-    app.bot.set_webhook(new_url)
+    app.run_sync(app.bot.set_webhook, new_url)
 
-    # 4) Запускаем встроенный HTTP-сервер для приёма Telegram-вебхуков
+    # 4) Запускаем HTTP-сервер для приёма вебхуков
     logger.info(f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_path=HOOK_PATH,
+        url_path=HOOK_PATH,     # <-- здесь именно url_path
     )
 
 
