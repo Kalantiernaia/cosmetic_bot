@@ -1,7 +1,5 @@
 import os
 import logging
-from io import BytesIO
-from PIL import Image
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -11,69 +9,62 @@ from telegram.ext import (
     filters,
 )
 
-# Включаем логирование, чтобы видеть ошибки
+# Включаем логирование
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Загружаем настройки из окружения
-TOKEN       = os.environ["TG_TOKEN"]
-RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")  # https://...up.railway.app
-PORT        = int(os.environ.get("PORT", 5000))
-HOOK_PATH   = f"/hook/{TOKEN}"                     # путь вебхука
+# Читаем переменные окружения
+TOKEN = os.environ["TG_TOKEN"]
+OPENAI_KEY = os.environ["OPENAI_API_KEY"]  # если не нужен — можно убрать
+RAILWAY_URL = os.environ["RAILWAY_URL"]
+PORT = int(os.environ.get("PORT", "8443"))
+
+# Путь вебхука (будь уверен, что совпадает с тем, что ты прописал в переменных Railway)
+HOOK_PATH = f"/hook/{TOKEN}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /start."""
-    text = (
-        "Привет! Я бот по безопасности косметики.\n\n"
-        "Доступные команды:\n"
-        "/start — запустить бота\n"
-        "/help — инструкции по использованию\n\n"
-        "Чтобы проверить безопасность средства, просто отправьте мне фото флакончика или состава."
+    """Ответ на /start."""
+    await update.message.reply_text(
+        "Привет! Я бот по анализу косметики. "
+        "Отправь мне фото — и я попробую помочь."
     )
-    await update.message.reply_text(text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /help."""
-    text = (
-        "Инструкции по использованию:\n"
-        "1) Отправьте фото состава или упаковки косметического средства\n"
-        "2) Я проанализирую его и отвечу, безопасно ли это средство\n"
-        "3) Задавайте вопросы по результатам"
+    """Ответ на /help."""
+    await update.message.reply_text(
+        "/start — запустить бота\n"
+        "/help  — инструкция по использованию"
     )
-    await update.message.reply_text(text)
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик поступившего фото."""
-    # Берём фотографию пользователя (последний элемент в list)
+    """Обработчик фото."""
+    # Тут ты получаешь файл и делаешь свой анализ
     photo = update.message.photo[-1]
-    bio = BytesIO()
-    await photo.get_file().download(out=bio)
-    bio.seek(0)
-    # Открываем через PIL (можете здесь вставить свой анализ)
-    image = Image.open(bio)
-    # Пока просто подтверждаем приём
-    await update.message.reply_text("Фото получено, начинаю анализ…")
-    # TODO: здесь "image" можно передать в OpenAI Vision или другой модуль анализа
-    # После анализа отправьте пользователю результат:
-    # await update.message.reply_text("Результат анализа: ...")
+    file = await photo.get_file()
+    file_path = await file.download_to_drive()
+
+    # Здесь вставляй свой код обработки картинки,
+    # например с OpenAI или PIL, и отправляй результат:
+    await update.message.reply_text("Фото получено, анализирую…")
+    # …твой анализ…
+    await update.message.reply_text("Готово!")
 
 def main() -> None:
-    """Главная функция — создаёт приложение и запускает вебхук."""
+    """Точка входа — собираем апп и запускаем вебхук."""
     app = Application.builder().token(TOKEN).build()
 
-    # Регистрируем обработчики
+    # Регистрируем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    # Фильтр на любые фото-сообщения
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 
-    # Запускаем вебхук-сервер
+    # Запускаем вебхук
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url_path=HOOK_PATH,        # НОВЫЙ параметр
+        url_path=HOOK_PATH,
         webhook_url=RAILWAY_URL + HOOK_PATH,
         drop_pending_updates=True,
     )
