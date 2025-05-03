@@ -1,6 +1,5 @@
 import os
 import logging
-
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -13,7 +12,7 @@ from telegram.ext import (
 # ————————————————
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ if not TOKEN or not RAILWAY_URL:
 
 
 # ————————————————
-# Обработчики команд
+# Командные обработчики
 # ————————————————
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
@@ -47,29 +46,34 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Больше команд пока нет."
     )
 
+# ————————————————
+# Функция, которая сбросит старый вебхук и установит новый
+# ————————————————
+async def on_startup(app: Application) -> None:
+    logger.info("Deleting old webhook (if any)…")
+    await app.bot.delete_webhook(drop_pending_updates=True)
+
+    new_url = RAILWAY_URL + HOOK_PATH
+    logger.info(f"Setting new webhook to {new_url}")
+    await app.bot.set_webhook(new_url)
+
 
 def main() -> None:
     # 1) Создаём приложение
     app = Application.builder().token(TOKEN).build()
 
-    # 2) Регистрируем командные хэндлеры
+    # 2) Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
 
-    # 3) Сбрасываем старый вебхук и устанавливаем новый
-    logger.info("Deleting old webhook (if any)…")
-    app.run_sync(app.bot.delete_webhook, drop_pending_updates=True)
-
-    new_url = RAILWAY_URL + HOOK_PATH
-    logger.info(f"Setting new webhook to {new_url}")
-    app.run_sync(app.bot.set_webhook, new_url)
-
-    # 4) Запускаем HTTP-сервер для приёма вебхуков
+    # 3) Запускаем приложение в режиме вебхуков
+    #    on_startup — будет вызвано один раз до старта HTTP-сервера
     logger.info(f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=HOOK_PATH,     # <-- здесь именно url_path
+        webhook_path=HOOK_PATH,
+        on_startup=on_startup,
     )
 
 
