@@ -1,132 +1,82 @@
-# main.py
 import os
 import logging
 from io import BytesIO
-
-from dotenv import load_dotenv
+from PIL import Image
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
 )
-from PIL import Image
-import pytesseract
-import openai
 
-# 1) Настройка логирования
+# Включаем логирование, чтобы видеть ошибки
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# 2) Загрузить .env
-load_dotenv()
-TG_TOKEN = os.getenv("TG_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-RAILWAY_URL = os.getenv("RAILWAY_URL")  # https://yourapp.up.railway.app
+# Загружаем настройки из окружения
+TOKEN       = os.environ["TG_TOKEN"]
+RAILWAY_URL = os.environ["RAILWAY_URL"].rstrip("/")  # https://...up.railway.app
+PORT        = int(os.environ.get("PORT", 5000))
+HOOK_PATH   = f"/hook/{TOKEN}"                     # путь вебхука
 
-if not TG_TOKEN or not OPENAI_API_KEY:
-    logger.error("Не задан TG_TOKEN или OPENAI_API_KEY в .env")
-    exit(1)
-
-openai.api_key = OPENAI_API_KEY
-
-
-# 3) Функция анализа текста через OpenAI
-async def analyze_cosmetics(text: str) -> str:
-    """
-    Отправляем запрос в OpenAI, возвращаем ответ.
-    Подставьте здесь свой prompt / параметры модели.
-    """
-    try:
-        resp = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Ты эксперт по косметике."},
-                {"role": "user", "content": f"Проанализируй состав: {text}"},
-            ],
-            max_tokens=200,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        logger.exception("OpenAI error:")
-        return "Ошибка анализа состава."
-
-
-# 4) Обработчики команд
-async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! Я бот по анализу косметики.\n"
-        "Отправьте мне текст (названия ингредиентов) или фото состава."
-    )
-
-
-async def help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /start."""
+    text = (
+        "Привет! Я бот по безопасности косметики.\n\n"
+        "Доступные команды:\n"
         "/start — запустить бота\n"
-        "/help — показать эти инструкции\n\n"
-        "Просто отправьте мне текст или фото."
+        "/help — инструкции по использованию\n\n"
+        "Чтобы проверить безопасность средства, просто отправьте мне фото флакончика или состава."
     )
+    await update.message.reply_text(text)
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /help."""
+    text = (
+        "Инструкции по использованию:\n"
+        "1) Отправьте фото состава или упаковки косметического средства\n"
+        "2) Я проанализирую его и отвечу, безопасно ли это средство\n"
+        "3) Задавайте вопросы по результатам"
+    )
+    await update.message.reply_text(text)
 
-# 5) Обработка текста (списка ингредиентов)
-async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    await update.message.reply_text("Идёт анализ, подождите…")
-    result = await analyze_cosmetics(user_text)
-    await update.message.reply_text(result)
-
-
-# 6) Обработка фото (OCR → анализ текста)
-async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Скачиваю фото и распознаю текст…")
-    photo_file = await update.message.photo[-1].get_file()
+async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик поступившего фото."""
+    # Берём фотографию пользователя (последний элемент в list)
+    photo = update.message.photo[-1]
     bio = BytesIO()
-    await photo_file.download_to_memory(out=bio)
+    await photo.get_file().download(out=bio)
     bio.seek(0)
+    # Открываем через PIL (можете здесь вставить свой анализ)
+    image = Image.open(bio)
+    # Пока просто подтверждаем приём
+    await update.message.reply_text("Фото получено, начинаю анализ…")
+    # TODO: здесь "image" можно передать в OpenAI Vision или другой модуль анализа
+    # После анализа отправьте пользователю результат:
+    # await update.message.reply_text("Результат анализа: ...")
 
-    try:
-        img = Image.open(bio)
-        ocr_text = pytesseract.image_to_string(img, lang="eng+rus")
-        if not ocr_text.strip():
-            raise ValueError("Текст не найден")
-    except Exception as e:
-        logger.exception("OCR error:")
-        await update.message.reply_text("Не удалось распознать текст на фото.")
-        return
+def main() -> None:
+    """Главная функция — создаёт приложение и запускает вебхук."""
+    app = Application.builder().token(TOKEN).build()
 
-    await update.message.reply_text("Найденный текст:\n" + ocr_text[:200] + "…\nАнализирую…")
-    result = await analyze_cosmetics(ocr_text)
-    await update.message.reply_text(result)
-
-
-def main():
-    # 7) Создаём приложение
-    app = ApplicationBuilder().token(TG_TOKEN).build()
-
-    # 8) Регистрируем обработчики
+    # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    # Фильтр на любые фото-сообщения
+    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 
-    # 9) Запуск polling или webhook
-    if RAILWAY_URL:
-        # webhook на Railway
-        webhook_path = f"/hook/{TG_TOKEN}"
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=int(os.environ.get("PORT", "8080")),
-            webhook_url=RAILWAY_URL + webhook_path,
-            webhook_path=webhook_path,
-        )
-    else:
-        # локально
-        app.run_polling()
-
+    # Запускаем вебхук-сервер
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url_path=HOOK_PATH,        # НОВЫЙ параметр
+        webhook_url=RAILWAY_URL + HOOK_PATH,
+        drop_pending_updates=True,
+    )
 
 if __name__ == "__main__":
     main()
