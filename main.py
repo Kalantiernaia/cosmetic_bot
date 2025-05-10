@@ -2,80 +2,70 @@ import os
 import logging
 from telegram import Update
 from telegram.ext import (
-    Application,
+    ApplicationBuilder,
     CommandHandler,
     ContextTypes,
 )
 
 # ————————————————
-# Логирование
+# Логирование (для дебага)
 # ————————————————
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 # ————————————————
 # Переменные окружения
 # ————————————————
-TOKEN = os.getenv("TG_TOKEN")
-RAILWAY_URL = os.getenv("RAILWAY_URL")  # без слеша в конце
-PORT = int(os.getenv("PORT", "8443"))
-HOOK_PATH = f"/hook/{TOKEN}"
+TOKEN       = os.getenv("TG_TOKEN")       # новый токен из BotFather
+RAILWAY_URL = os.getenv("RAILWAY_URL")    # https://<your-app>.up.railway.app
+PORT        = int(os.getenv("PORT", "8443"))
+HOOK_PATH   = f"/hook/{TOKEN}"
 
+# Проверим, что токен и URL есть
 if not TOKEN or not RAILWAY_URL:
-    logger.error("Необходимо задать TG_TOKEN и RAILWAY_URL")
+    logger.error("Необходимо задать TG_TOKEN и RAILWAY_URL в ENV")
     exit(1)
 
-
 # ————————————————
-# Командные обработчики
+# Хэндлеры
 # ————————————————
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! Я бот по безопасности косметики.\n\n"
         "Доступные команды:\n"
         "/start — запустить бота\n"
-        "/help — инструкции по использованию"
+        "/help  — показать эту подсказку"
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Чтобы начать, отправьте /start.\n"
-        "Больше команд пока нет."
+        "Чтобы начать, просто отправьте /start."
     )
 
-# ————————————————
-# Функция, которая сбросит старый вебхук и установит новый
-# ————————————————
-async def on_startup(app: Application) -> None:
-    logger.info("Deleting old webhook (if any)…")
-    await app.bot.delete_webhook(drop_pending_updates=True)
+def main():
+    # Создаём приложение
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    new_url = RAILWAY_URL + HOOK_PATH
-    logger.info(f"Setting new webhook to {new_url}")
-    await app.bot.set_webhook(new_url)
-
-
-def main() -> None:
-    # 1) Создаём приложение
-    app = Application.builder().token(TOKEN).build()
-
-    # 2) Регистрируем обработчики
+    # Регистрируем команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
 
-    # 3) Запускаем приложение в режиме вебхуков
-    #    on_startup — будет вызвано один раз до старта HTTP-сервера
+    # Сбрасываем старый вебхук и ставим новый
+    logger.info("Deleting old webhook…")
+    app.bot.delete_webhook(drop_pending_updates=True)
+    new_url = RAILWAY_URL + HOOK_PATH
+    logger.info(f"Setting webhook to {new_url}")
+    app.bot.set_webhook(new_url)
+
+    # Запускаем HTTP-сервер для вебхука
     logger.info(f"Starting webhook listener on 0.0.0.0:{PORT}{HOOK_PATH}")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_path=HOOK_PATH,
-        on_startup=on_startup,
+        url_path=HOOK_PATH,
     )
-
 
 if __name__ == "__main__":
     main()
