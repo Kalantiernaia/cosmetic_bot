@@ -1,87 +1,51 @@
 import os
 import logging
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-import openai
+from aiogram import Bot, Dispatcher, types
+from aiogram.dispatcher.filters import Command
+from aiogram.types import ContentType
+from aiogram.utils.executor import start_webhook
 
-# ——— Настройка логирования ———
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+TOKEN = os.getenv("TG_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+PORT = int(os.getenv("PORT", 8080))
 
-# ——— Загрузка переменных окружения из .env ———
-load_dotenv()
-BOT_TOKEN     = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not TOKEN or not WEBHOOK_URL:
+    logging.error("Не заданы переменные TG_TOKEN или WEBHOOK_URL")
+    exit(1)
 
-openai.api_key = OPENAI_API_KEY
+bot = Bot(token=TOKEN)
+dp = Dispatcher(bot)
 
-# ——— Обработчики команд ———
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! Я бот по безопасности косметики. Отправь мне фото упаковки, "
-        "а я постараюсь дать ответ."
-    )
+@dp.message_handler(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer("Привет! Я бот по безопасности косметики. Отправь мне фото упаковки, я постараюсь помочь.")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Доступные команды:\n"
-        "/start — запустить бота\n"
-        "/help — показать эту подсказку\n\n"
-        "Просто отправь фото, и я отвечу."
-    )
+@dp.message_handler(ContentType.PHOTO)
+async def handle_photo(message: types.Message):
+    photo = message.photo[-1]
+    await message.answer("Фото получено, анализирую…")
+    # Здесь вставь свой код распознавания/анализа
+    # Для теста просто отвечаем:
+    await message.answer("Пока не могу обработать фото, попробуй позже.")
 
-# ——— Обработчик фото ———
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]  # берём фото наилучшего качества
-    file = await photo.get_file()
-    img_bytes = await file.download_as_bytearray()
+@dp.message_handler()
+async def fallback(message: types.Message):
+    await message.answer("Я понимаю только команды /start и фото.")
 
-    # Здесь вы можете добавить любую вашу логику,
-    # например, отправить изображение в OpenAI Vision или
-    # сохранить его и передать в свой ML-модель, и т.д.
-    #
-    # Ниже просто пример-заглушка:
-    #
-    await update.message.reply_text("Фото получено, анализирую…")
-
-    # Пример вызова OpenAI (текстовая модель, вместо Vision):
-    try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "Что на этом фото?"}],
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        logger.exception("OpenAI error:")
-        text = "Не смог обработать фото, попробуйте позже."
-
-    await update.message.reply_text(text)
-
-# ——— Точка входа ———
-def main():
-    if not BOT_TOKEN or not OPENAI_API_KEY:
-        logger.error("Не найдены BOT_TOKEN или OPENAI_API_KEY в .env")
-        return
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-
-    # Запускаем polling
-    app.run_polling()
+async def on_startup(dp):
+    logging.info("Deleting old webhook (if any)…")
+    await bot.delete_webhook(drop_pending_updates=True)
+    webhook_path = f"/hook/{TOKEN}"
+    webhook_full = f"{WEBHOOK_URL}{webhook_path}"
+    logging.info(f"Setting new webhook to {webhook_full}")
+    await bot.set_webhook(webhook_full)
 
 if __name__ == "__main__":
-    main()
-
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=f"/hook/{TOKEN}",
+        on_startup=on_startup,
+        host="0.0.0.0",
+        port=PORT,
+    )
