@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 # 2) Подгружаем .env
 load_dotenv()
-TOKEN = os.getenv("TG_TOKEN")
+TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logging.error("Не задан TG_TOKEN в .env")
     exit(1)
