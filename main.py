@@ -5,7 +5,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ContentType
 from aiogram import F
-from aiogram.utils import executor
 
 # 1) Логирование
 logging.basicConfig(level=logging.INFO)
