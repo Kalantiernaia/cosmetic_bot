@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    logging.error("Не задан TG_TOKEN в .env")
+    logging.error("Не задан BOT_TOKEN в .env")
     exit(1)
 
 # 3) Инициализация бота и диспетчера
