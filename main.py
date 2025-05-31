@@ -1,14 +1,17 @@
+```python
 import os
 import logging
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types, executor, F
-from aiogram.filters import Command
-from aiogram.types import ContentType
+import asyncio
 
-# 1) Настройка логирования
+from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import ContentType, Message
+
+# 1) Логирование
 logging.basicConfig(level=logging.INFO)
 
-# 2) Подгружаем переменные окружения из .env
+# 2) Подгружаем .env
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
@@ -19,30 +22,37 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# 4) Перед стартом long-polling удаляем любой заранее установленный вебхук
-async def on_startup(dp: Dispatcher):
-    await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Webhook удалён, бот будет работать через getUpdates (long-polling).")
-
-# 5) Хэндлеры
+# 4) Хэндлеры
 
 @dp.message(Command(commands=["start"]))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: Message):
     await message.answer(
         "Привет! Я бот по безопасности косметики.\n"
         "Отправь мне фото упаковки — я постараюсь помочь."
     )
 
 @dp.message(F.content_type == ContentType.PHOTO)
-async def handle_photo(message: types.Message):
+async def handle_photo(message: Message):
     await message.answer("Фото получено, анализирую…")
-    # TODO: здесь может быть ваш код распознавания/анализа изображения
+    # TODO: сюда ваш код распознавания/анализа
     await message.answer("Пока не могу распознать текст — попробуй позже.")
 
 @dp.message()
-async def fallback(message: types.Message):
-    await message.answer("Я понимаю только команду /start и фото упаковки. Попробуй еще раз.")
+async def fallback(message: Message):
+    await message.answer("Я понимаю только команду /start и фото упаковки. Попробуй ещё раз.")
 
-# 6) Запуск long-polling
+# 5) Запуск long-polling
+async def main():
+    # Если раньше был установлен webhook, его лучше удалить:
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info("Удалили webhook (если был). Работаем через getUpdates.")
+    except Exception:
+        pass
+
+    logging.info("Бот запущен. Ожидаю сообщения…")
+    await dp.start_polling(bot, skip_updates=True)
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    asyncio.run(main())
+```
