@@ -7,17 +7,17 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ContentType, Message
 
-# 1) Логирование
+# 1) Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
 
-# 2) Подгружаем .env
+# 2) Загружаем переменные из .env
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logging.error("Не задан BOT_TOKEN в .env")
     exit(1)
 
-# 3) Инициализация бота и диспетчера
+# 3) Инициализируем бота и диспетчер
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -42,16 +42,15 @@ async def fallback(message: Message):
 
 # 5) Запуск long-polling
 async def main():
-    # Если раньше был установлен webhook, его лучше удалить:
+    # Если ранее был установлен вебхук, то удалим его, чтобы использовать getUpdates
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        logging.info("Удалили webhook (если был). Работаем через getUpdates.")
+        logging.info("Webhook удалён (если был). Работаем через getUpdates.")
     except Exception:
         pass
 
-    logging.info("Бот запущен. Ожидаю сообщения…")
+    logging.info("Бот запущен. Ожидаю сообщений…")
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
-```
