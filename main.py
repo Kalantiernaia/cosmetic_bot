@@ -40,16 +40,17 @@ async def handle_photo(message: Message):
 async def fallback(message: Message):
     await message.answer("Я понимаю только команду /start и фото упаковки. Попробуй ещё раз.")
 
-# 5) Запуск long-polling
+# 5) Основная функция запуска long-polling
 async def main():
-    # Если ранее был установлен вебхук, то удалим его, чтобы использовать getUpdates
+    # Если ранее был установлен вебхук, удаляем его, чтобы избежать конфликта с getUpdates
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info("Webhook удалён (если был). Работаем через getUpdates.")
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"Не удалось удалить webhook: {e}")
 
     logging.info("Бот запущен. Ожидаю сообщений…")
+    # Запускаем polling
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
